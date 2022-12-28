@@ -1,3 +1,6 @@
 /exec-packer/*.out
 /exec-packer/asm-hello/*.asm~
 /exec-packer/asm-hello/*.o
+*~
+target/**
+/exec-packer/target/
