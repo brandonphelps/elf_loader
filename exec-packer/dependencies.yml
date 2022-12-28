@@ -1,0 +1,8 @@
+
+os:
+  ubuntu:
+    software:
+      - nasm
+      - make
+
+
