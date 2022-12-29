@@ -29,6 +29,15 @@ unsafe fn jmp(addr: *const u8) {
 }
 
 
+fn pause(reason: &str) -> Result<(), Box<dyn Error>> {
+    println!("Press enter to {}...", reason);
+    {
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s)?;
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let input_path = env::args().nth(1).expect("useage: elk FILE");
     let input = fs::read(&input_path)?;
@@ -46,15 +55,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let code_ph = file.program_headers.iter().find(|ph| ph.mem_range().contains(&file.entry_point)).expect("Segement with entry point not found");
     ndisasm(&code_ph.data[..], file.entry_point)?;
 
-    let status = Command::new(&input_path).status()?;
-    if !status.success() {
-        return Err("process did not exit successfully".into());
-    }
-
     println!("Executing {:?} in memory...", input_path);
 
     use region::{protect, Protection};
     let code = &code_ph.data;
+    pause("protect")?;
     unsafe {
         protect(code.as_ptr(), code.len(), Protection::READ_WRITE_EXECUTE)?;
     }
@@ -65,10 +70,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("entry offset @ {:?}", entry_offset);
     println!("entry point  @ {:?}", entry_point);
 
+    pause("jmp")?;
     unsafe  {
         jmp(entry_point);
     }
-
 
     Ok(())
 }

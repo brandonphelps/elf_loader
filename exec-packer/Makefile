@@ -1,14 +1,24 @@
-all: asm-hello.out elk/samples/entry_point
 
-asm-hello.out: asm-hello/hello.o
-	ld asm-hello/hello.o -o $@
+
+all: hello nodata entry_point
+
+hello: elk/samples/hello.o
+	ld elk/samples/hello.o -o $@
+
+nodata: elk/samples/nodata.o
+	ld elk/samples/nodata.o -o $@
 
 # linux
-asm-hello/hello.o: asm-hello/hello.asm
+elk/samples/hello.o: elk/samples/hello.asm
 	nasm -g -felf64 $< -o $@
 
-elk/samples/entry_point: elk/samples/entry_point.c
+elk/samples/nodata.o: elk/samples/nodata.asm
+	nasm -g -felf64 $< -o $@
+
+entry_point: elk/samples/entry_point.c
 	gcc -g $< -o $@
+
+
 
 
 # mac
