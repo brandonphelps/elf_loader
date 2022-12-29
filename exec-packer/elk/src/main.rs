@@ -75,6 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .program_headers
         .iter()
         .filter(|ph| ph.r#type == delf::SegmentType::Load)
+        .filter(|ph| ph.mem_range().end > ph.mem_range().start)
     {
         println!("Mapping segment @ {:?} with {:?}", ph.mem_range(), ph.flags);
         // note:  mmap-ing would fail if the segemnts weren't aligned on pages,
@@ -90,7 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         // `as` is the "cast" operator, and `_` is a  placeholder to force  rustc
         // to infer the type based on other hints
-        let addr: *mut u8 = start as _;
+        let addr: *mut u8 = aligned_start as _;
         println!("start: {:?} Addr: {:p}, Padding: {:08x}", start, addr, padding);
 
         let map = MemoryMap::new(len, &[MapOption::MapWritable, MapOption::MapAddr(addr)])?;
