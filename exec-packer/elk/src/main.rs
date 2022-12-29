@@ -64,6 +64,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("Segement with entry point not found");
     ndisasm(&code_ph.data[..], file.entry_point)?;
 
+    println!("Dynamic entries:");
+    if let Some(ds) = file.program_headers
+        .iter()
+        .find(|ph| ph.r#type == delf::SegmentType::Dynamic)
+    {
+        if let delf::SegmentContents::Dynamic(ref table) = ds.contents {
+            for entry in table {
+                println!(" - {:?}", entry);
+            }
+        }
+    }
+
+
 
     let base = 0x400000_usize;
 

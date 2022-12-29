@@ -109,7 +109,74 @@ pub struct ProgramHeader {
     pub memsz: Addr,
     pub align: Addr,
     pub data: Vec<u8>,
+    pub contents: SegmentContents,
 }
+
+#[derive(Debug)]
+pub enum SegmentContents {
+    Dynamic(Vec<DynamicEntry>),
+    Unknown,
+}
+
+#[derive(Debug)]
+pub struct DynamicEntry {
+    pub tag: DynamicTag,
+    pub addr: Addr,
+}
+
+
+#[derive(Debug, TryFromPrimitive, PartialEq, Eq)]
+#[repr(u64)]
+pub enum DynamicTag {
+    Null = 0,
+    Needed = 1,
+    PltRelSz = 2,
+    PltGot = 3,
+    Hash = 4,
+    StrTab = 5,
+    SymTab = 6,
+    Rela = 7,
+    RelaSz = 8,
+    RelaEnt = 9,
+    StrSz = 10,
+    SymEnt = 11,
+    Init = 12,
+    Fini = 13,
+    SoName = 14,
+    RPath = 15,
+    Symbolic = 16,
+    Rel = 17,
+    RelSz = 18,
+    RelEnt = 19,
+    PltRel = 20,
+    Debug = 21,
+    TextRel = 22,
+    JmpRel = 23,
+    BindNow = 24,
+    InitArray = 25,
+    FiniArray = 26,
+    InitArraySz = 27,
+    FiniArraySz = 28,
+    Flags = 30,
+    LoOs = 0x60000000,
+    GnuHash = 0x6ffffef5,
+    Flags1 = 0x6ffffffb,
+    RelACount = 0x6ffffff9,    
+    HiOs = 0x6fffffff,
+    LoProc = 0x70000000,
+    HiProc = 0x7fffffff,
+}
+
+impl_parse_from_enum!(DynamicTag, le_u64);
+
+impl DynamicEntry {
+    fn parse(i: parse::Input) -> parse::Result<Self> {
+        use nom::sequence::tuple;
+        let (i, (tag, addr)) = tuple((DynamicTag::parse, Addr::parse))(i)?;
+        Ok((i,  Self { tag, addr }))
+    }
+}
+
 
 use std::ops::Range;
 
@@ -122,13 +189,32 @@ impl ProgramHeader {
         self.vaddr..self.vaddr + self.memsz
     }
 
-    fn parse<'a>(full_input: parse::Input<'_>, i: parse::Input<'a>) -> parse::Result<'a, Self> {
+    fn parse<'a>(full_input: parse::Input<'a>, i: parse::Input<'a>) -> parse::Result<'a, Self> {
         use nom::sequence::tuple;
 
         let (i, (r#type, flags)) = tuple((SegmentType::parse, SegmentFlag::parse))(i)?;
 
         let ap = Addr::parse;
         let (i, (offset, vaddr, paddr, filesz, memsz, align)) = tuple((ap, ap, ap, ap, ap, ap))(i)?;
+
+        use nom::{combinator::{map, verify}, multi::many_till};
+  // this used to be directly in the `Self` struct literal, but
+        // we're going to use it in the next block to parse dynamic entries from it.
+        let slice = &full_input[offset.into()..][..filesz.into()];
+        let (_, contents) = match r#type {
+            SegmentType::Dynamic => {
+                // *if* this is a Dynamic segment, we parse its contents. we haven't
+                // implemented `DynamicEntry::parse` yet, but it's coming!
+                println!("Slice: {:?}", slice);
+                map(
+                    many_till(DynamicEntry::parse,
+                              verify(DynamicEntry::parse, |e| e.tag == DynamicTag::Null),
+                    ),
+                    |(entries, _last)| SegmentContents::Dynamic(entries),
+                )(slice)?
+            }
+            _ => (slice, SegmentContents::Unknown),
+        };
 
         let res = Self {
             r#type,
@@ -140,6 +226,7 @@ impl ProgramHeader {
             memsz,
             align,
             data: full_input[offset.into()..][..filesz.into()].to_vec(),
+            contents,
         };
         Ok((i, res))
     }
