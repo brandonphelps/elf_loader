@@ -1,6 +1,3 @@
-
-
-
 pub type Input<'a> = &'a [u8];
 pub type Result<'a, O> = nom::IResult<Input<'a>, O, nom::error::VerboseError<Input<'a>>>;
 
@@ -9,9 +6,10 @@ macro_rules! impl_parse_from_enum {
     ($type: ident, $number_parser: ident) => {
         impl $type {
             pub fn parse(i: parse::Input) -> parse::Result<Self> {
-                use nom::{combinator::map_res,
-                          error::{context, ErrorKind},
-                          number::complete::$number_parser,
+                use nom::{
+                    combinator::map_res,
+                    error::{context, ErrorKind},
+                    number::complete::$number_parser,
                 };
 
                 let parser = map_res($number_parser, |x| {
@@ -20,9 +18,8 @@ macro_rules! impl_parse_from_enum {
                 context(stringify!($type), parser)(i)
             }
         }
-    }
+    };
 }
-
 
 #[macro_export]
 macro_rules! impl_parse_for_enumflags {
@@ -40,5 +37,5 @@ macro_rules! impl_parse_for_enumflags {
                 context(stringify!($type), parser)(i)
             }
         }
-    }
+    };
 }

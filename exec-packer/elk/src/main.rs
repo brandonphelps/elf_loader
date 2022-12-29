@@ -1,9 +1,15 @@
+use mmap::{MapOption, MemoryMap};
+use region::{protect, Protection};
 use std::{env, error::Error, fs};
+
+fn align_lo(x: usize) -> usize {
+    x & !0xFFF
+}
 
 fn ndisasm(code: &[u8], origin: delf::Addr) -> Result<(), Box<dyn Error>> {
     use std::{
         io::Write,
-        process::{Command, Stdio}
+        process::{Command, Stdio},
     };
 
     let mut child = Command::new("ndisasm")
@@ -28,7 +34,6 @@ unsafe fn jmp(addr: *const u8) {
     fn_ptr();
 }
 
-
 fn pause(reason: &str) -> Result<(), Box<dyn Error>> {
     println!("Press enter to {}...", reason);
     {
@@ -52,12 +57,71 @@ fn main() -> Result<(), Box<dyn Error>> {
     use std::process::Command;
 
     println!("Disassembling {:?}...", input_path);
-    let code_ph = file.program_headers.iter().find(|ph| ph.mem_range().contains(&file.entry_point)).expect("Segement with entry point not found");
+    let code_ph = file
+        .program_headers
+        .iter()
+        .find(|ph| ph.mem_range().contains(&file.entry_point))
+        .expect("Segement with entry point not found");
     ndisasm(&code_ph.data[..], file.entry_point)?;
+
+
+    let base = 0x400000_usize;
+
+    println!("Mapping {:?} in memory...", input_path);
+
+    let mut mappings = Vec::new();
+
+    for ph in file
+        .program_headers
+        .iter()
+        .filter(|ph| ph.r#type == delf::SegmentType::Load)
+    {
+        println!("Mapping segment @ {:?} with {:?}", ph.mem_range(), ph.flags);
+        // note:  mmap-ing would fail if the segemnts weren't aligned on pages,
+        // but luckily, that is the case in the file already. That is not a coincidence.
+        let mem_range = ph.mem_range();
+
+        let len: usize = (mem_range.end - mem_range.start).into();
+
+        let start: usize = mem_range.start.0 as usize + base;
+        let aligned_start: usize = align_lo(start);
+        let padding = start - aligned_start;
+        let len = len + padding;
+        
+        // `as` is the "cast" operator, and `_` is a  placeholder to force  rustc
+        // to infer the type based on other hints
+        let addr: *mut u8 = start as _;
+        println!("start: {:?} Addr: {:p}, Padding: {:08x}", start, addr, padding);
+
+        let map = MemoryMap::new(len, &[MapOption::MapWritable, MapOption::MapAddr(addr)])?;
+
+        println!("Copying segment data...");
+        {
+            let dst = unsafe { std::slice::from_raw_parts_mut(addr.add(padding), ph.data.len()) };
+            dst.copy_from_slice(&ph.data[..]);
+        }
+
+        println!("Adjusting permissions...");
+
+        let mut protection = Protection::NONE;
+
+        for flag in ph.flags.iter() {
+            protection |= match flag {
+                delf::SegmentFlag::Read => Protection::READ,
+                delf::SegmentFlag::Write => Protection::WRITE,
+                delf::SegmentFlag::Execute => Protection::EXECUTE,
+            }
+        }
+
+        unsafe {
+            protect(addr, len, protection)?;
+        }
+        mappings.push(map);
+        
+    }
 
     println!("Executing {:?} in memory...", input_path);
 
-    use region::{protect, Protection};
     let code = &code_ph.data;
     pause("protect")?;
     unsafe {
@@ -71,8 +135,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("entry point  @ {:?}", entry_point);
 
     pause("jmp")?;
-    unsafe  {
-        jmp(entry_point);
+    unsafe {
+        jmp((file.entry_point.0 as usize + base) as _);
     }
 
     Ok(())

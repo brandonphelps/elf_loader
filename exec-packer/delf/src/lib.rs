@@ -1,25 +1,21 @@
-
-
 mod parse;
 use enumflags2::BitFlags;
 
-use enumflags2::*;
 use derive_more::*;
-use num_enum::{TryFromPrimitive};
+use enumflags2::*;
+use num_enum::TryFromPrimitive;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Add, Sub)]
 pub struct Addr(pub u64);
 
-
 impl fmt::Debug for Addr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result  {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:08x}", self.0)
     }
 }
 
-
 impl fmt::Display for Addr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result  {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(self, f)
     }
 }
@@ -77,6 +73,17 @@ pub enum SegmentType {
     Dynamic = 0x2,
     Interp = 0x3,
     Note = 0x4,
+    ShLib = 0x5,
+    PHdr = 0x6,
+    TLS = 0x7,
+    LoOS = 0x6000_0000,
+    HiOS = 0x6FFF_FFFF,
+    LoProc = 0x7000_0000,
+    HiProc = 0x7FFF_FFFF,
+    GnuEhFrame = 0x6474_E550,
+    GnuStack = 0x6474_E551,
+    GnuRelRo = 0x6474_E552,
+    GnuProperty = 0x6474_E553,
 }
 
 impl_parse_from_enum!(SegmentType, le_u32);
@@ -107,7 +114,6 @@ pub struct ProgramHeader {
 use std::ops::Range;
 
 impl ProgramHeader {
-
     pub fn file_range(&self) -> Range<Addr> {
         self.offset..self.offset + self.filesz
     }
@@ -154,16 +160,16 @@ impl fmt::Debug for ProgramHeader {
                 (SegmentFlag::Write, "W"),
                 (SegmentFlag::Execute, "X")
             ]
-                .iter()
-                .map(|&(flag, letter)| {
-                    if self.flags.contains(flag) {
-                        letter
-                    } else {
-                        "."
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(""),
+            .iter()
+            .map(|&(flag, letter)| {
+                if self.flags.contains(flag) {
+                    letter
+                } else {
+                    "."
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(""),
             self.r#type,
         )
     }
@@ -177,7 +183,6 @@ pub struct File {
     pub program_headers: Vec<ProgramHeader>,
 }
 
-
 impl File {
     const MAGIC: &'static [u8] = &[0x7f, 0x45, 0x4c, 0x46];
 
@@ -186,19 +191,17 @@ impl File {
 
         use nom::{
             bytes::complete::{tag, take},
-            error::context,
             combinator::map,
-            sequence::tuple,
+            error::context,
             number::complete::le_u16,
+            sequence::tuple,
         };
-
-
 
         let (i, _) = tuple((
             context("Magic", tag(Self::MAGIC)),
             // only supporting 64 bit atm
             context("Class", tag(&[0x2])),
-            // only supports little endian. 
+            // only supports little endian.
             context("Endianness", tag(&[0x1])),
             context("Version", tag(&[0x1])),
             context("OS ABI", nom::branch::alt((tag(&[0x0]), tag(&[0x3])))),
@@ -220,18 +223,22 @@ impl File {
 
         let (i, (ph_offset, sh_offset)) = tuple((Addr::parse, Addr::parse))(i)?;
         let (i, (flags, hdr_size)) = tuple((le_u32, le_u16))(i)?;
-        let (i, (ph_entsize, ph_count)) = tuple((map(le_u16, |x| x as usize), map(le_u16, |x| x as usize)))(i)?;
-        let (i, (sh_entsize, sh_count, sh_nidx)) = tuple((map(le_u16::<&[u8], _>, |x| x as usize), map(le_u16, |x| x as usize), map(le_u16, |x| x as usize)))(i)?;
+        let (i, (ph_entsize, ph_count)) =
+            tuple((map(le_u16, |x| x as usize), map(le_u16, |x| x as usize)))(i)?;
+        let (i, (sh_entsize, sh_count, sh_nidx)) = tuple((
+            map(le_u16::<&[u8], _>, |x| x as usize),
+            map(le_u16, |x| x as usize),
+            map(le_u16, |x| x as usize),
+        ))(i)?;
 
         println!("{:?}", sh_entsize + 1 as usize);
-        
+
         let ph_slices = (&full_input[ph_offset.into()..]).chunks(ph_entsize);
         let mut program_headers = Vec::new();
         for ph_slice in ph_slices.take(ph_count) {
             let (_, ph) = ProgramHeader::parse(full_input, ph_slice)?;
             program_headers.push(ph);
         }
-
 
         let res = Self {
             r#type,
@@ -249,7 +256,6 @@ impl File {
             Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
                 eprintln!("Parsing failed:");
                 for (input, err) in err.errors {
-
                     use nom::Offset;
                     let offset = i.offset(input);
                     eprintln!("{:?} at position {}:", err, offset);
@@ -261,7 +267,6 @@ impl File {
         }
     }
 }
-
 
 pub struct HexDump<'a>(&'a [u8]);
 
@@ -285,21 +290,22 @@ mod tests {
     #[test]
     fn type_to_u16() {
         assert_eq!(super::Type::Dyn as u16, 0x3);
-        
     }
 
     #[test]
     fn try_enums() {
         assert_eq!(Machine::X86_64 as u16, 0x3E);
         assert_eq!(Machine::try_from(0x3E), Ok(Machine::X86_64));
-        assert_eq!(Machine::try_from(0xFA), Err(TryFromPrimitiveError { number: 0xFA }));
+        assert_eq!(
+            Machine::try_from(0xFA),
+            Err(TryFromPrimitiveError { number: 0xFA })
+        );
     }
 
     #[test]
     fn try_bit_flag() {
         use super::SegmentFlag;
         use enumflags2::BitFlags;
-
 
         let flags_integer: u32 = 6;
         let flags = BitFlags::<SegmentFlag>::from_bits(flags_integer).unwrap();
@@ -308,6 +314,4 @@ mod tests {
 
         assert!(BitFlags::<SegmentFlag>::from_bits(1992).is_err());
     }
-
-
 }
