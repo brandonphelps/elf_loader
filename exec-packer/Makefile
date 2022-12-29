@@ -8,7 +8,7 @@ asm-hello/hello.o: asm-hello/hello.asm
 	nasm -g -felf64 $< -o $@
 
 elk/samples/entry_point: elk/samples/entry_point.c
-	gcc $< -o $@
+	gcc -g $< -o $@
 
 
 # mac
