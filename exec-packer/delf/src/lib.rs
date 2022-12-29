@@ -3,7 +3,6 @@
 mod parse;
 use num_enum::{TryFromPrimitive};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u16)]
 pub enum Type {
@@ -20,6 +19,10 @@ pub enum Machine {
     X86 = 0x03,
     X86_64 = 0x3e,
 }
+
+impl_parse_from_enum!(Type, le_u16);
+impl_parse_from_enum!(Machine, le_u16);
+
 
 #[derive(Debug)]
 pub struct File {
@@ -51,10 +54,7 @@ impl File {
         ))(i)?;
 
 
-        let (i, (r#type, machine)) = tuple((
-            context("Type", map(le_u16, |x| Type::try_from(x).unwrap())),
-            context("Machine", map(le_u16, |x| Machine::try_from(x).unwrap()))
-        ))(i)?;
+        let (i, (r#type, machine)) = tuple((Type::parse, Machine::parse))(i)?;
 
         let res = Self {
             r#type,
@@ -69,9 +69,12 @@ impl File {
             Ok((_, file)) => Some(file),
             Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
                 eprintln!("Parsing failed:");
-                for (input, err) err.errors {
-                    eprintln!("{:?} at:", err);
-                    eprintln!("{:?}", HexDump(input));
+                for (input, err) in err.errors {
+
+                    use nom::Offset;
+                    let offset = i.offset(input);
+                    eprintln!("{:?} at position {}:", err, offset);
+                    eprintln!("{:>08x}: {:?}", offset, HexDump(input));
                 }
                 None
             }
