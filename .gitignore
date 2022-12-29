@@ -4,3 +4,4 @@
 *~
 target/**
 /exec-packer/target/
+/exec-packer/elk/samples/entry_point
