@@ -1,8 +1,9 @@
 
 
 mod parse;
+use enumflags2::BitFlags;
 
-
+use enumflags2::*;
 use derive_more::*;
 use num_enum::{TryFromPrimitive};
 
@@ -68,6 +69,28 @@ pub enum Machine {
 impl_parse_from_enum!(Type, le_u16);
 impl_parse_from_enum!(Machine, le_u16);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
+#[repr(u32)]
+pub enum SegmentType {
+    Null = 0x0,
+    Load = 0x1,
+    Dynamic = 0x2,
+    Interp = 0x3,
+    Note = 0x4,
+}
+
+impl_parse_from_enum!(SegmentType, le_u32);
+
+
+#[bitflags]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum SegmentFlag {
+    Execute = 0x1,
+    Write = 0x2,
+    Read = 0x4,
+}
+
 
 #[derive(Debug)]
 pub struct File {
@@ -75,6 +98,7 @@ pub struct File {
     pub machine: Machine,
     pub entry_point: Addr, 
 }
+
 
 impl File {
     const MAGIC: &'static [u8] = &[0x7f, 0x45, 0x4c, 0x46];
@@ -166,5 +190,20 @@ mod tests {
         assert_eq!(Machine::try_from(0x3E), Ok(Machine::X86_64));
         assert_eq!(Machine::try_from(0xFA), Err(TryFromPrimitiveError { number: 0xFA }));
     }
+
+    #[test]
+    fn try_bit_flag() {
+        use super::SegmentFlag;
+        use enumflags2::BitFlags;
+
+
+        let flags_integer: u32 = 6;
+        let flags = BitFlags::<SegmentFlag>::from_bits(flags_integer).unwrap();
+        assert_eq!(flags, SegmentFlag::Read | SegmentFlag::Write);
+        assert_eq!(flags.bits(), flags_integer);
+
+        assert!(BitFlags::<SegmentFlag>::from_bits(1992).is_err());
+    }
+
 
 }
