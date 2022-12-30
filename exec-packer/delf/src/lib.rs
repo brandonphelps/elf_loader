@@ -20,6 +20,7 @@ pub enum ReadRelError {
 
     #[error("Rela segment not found")]
     RelaSegmentNotFound,
+
     #[error("Parsing error")]
     ParsingError(nom::error::VerboseErrorKind),
 }
@@ -129,6 +130,20 @@ pub enum SegmentFlag {
 
 impl_parse_for_enumflags!(SegmentFlag, le_u32);
 
+#[derive(thiserror::Error, Debug)]
+pub enum ReadSymsError {
+    #[error("SymTab dynamic entry not found")]
+    SymTabNotFound,
+    #[error("SymTab section not found")]
+    SymTabSectionNotFound,
+    #[error("SymTab segment not found")]
+    SymTabSegmentNotFound,
+    #[error("Parsing error")]
+    ParsingError(nom::error::VerboseErrorKind),
+}
+
+
+
 pub struct ProgramHeader {
     pub r#type: SegmentType,
     pub flags: BitFlags<SegmentFlag>,
@@ -155,7 +170,7 @@ pub struct DynamicEntry {
 }
 
 
-#[derive(Debug, TryFromPrimitive, PartialEq, Eq)]
+#[derive(Debug, TryFromPrimitive, PartialEq, Eq, Clone, Copy)]
 #[repr(u64)]
 pub enum DynamicTag {
     Null = 0,
@@ -239,6 +254,163 @@ impl RelType {
             map(KnownRelType::parse, Self::Known),
             map(le_u32, Self::Unknown)
         ))(i)
+    }
+}
+
+#[derive(Debug, TryFromPrimitive, Clone, Copy)]
+#[repr(u8)]
+pub enum SymBind {
+    Local = 0,
+    Global = 1,
+    Weak = 2,
+}
+
+impl SymBind {
+    pub fn parse(i: parse::BitInput) -> parse::BitResult<Option<Self>> {
+        use nom::{bits::complete::take, combinator::map};
+        map(take(4_usize), |i: u8| Self::try_from(i).ok())(i)
+    }
+}
+
+#[derive(Debug, TryFromPrimitive, Clone, Copy)]
+#[repr(u8)]
+pub enum SymType {
+    None = 0,
+    Object = 1,
+    Func = 2,
+    Section = 3,
+}
+
+impl SymType {
+    pub fn parse(i: parse::BitInput) -> parse::BitResult<Option<Self>> {
+        use nom::{bits::complete::take, combinator::map};
+        map(take(4_usize), |i: u8| Self::try_from(i).ok())(i)
+    }
+}
+
+
+#[derive(Clone, Copy)]
+pub struct SectionIndex(pub u16);
+
+impl SectionIndex {
+    pub fn is_undef(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn is_special(&self) -> bool {
+        self.0 >= 0xff00
+    }
+
+    pub fn get(&self) -> Option<usize> {
+        if self.is_undef() || self.is_special() {
+            None
+        } else {
+            Some(self.0 as usize)
+        }
+    }
+}
+
+impl fmt::Debug for SectionIndex {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_special() {
+            write!(f, "Special({:04x})", self.0)
+        } else if self.is_undef() {
+            write!(f, "Undef")
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Sym {
+    pub name: Addr,
+    pub bind: Option<SymBind>,
+    pub r#type: Option<SymType>,
+    pub shndx: SectionIndex,
+    pub value: Addr,
+    pub size: u64,
+}
+
+impl Sym {
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+
+        use nom::{
+            bits::bits,
+            combinator::map,
+            number::complete::{le_u16, le_u32, le_u64, le_u8},
+            sequence::tuple,
+        };
+        
+
+        let (i, (name, (bind, r#type), _reserved, shndx, value, size)) = tuple((
+            map(le_u32, |x| Addr(x as u64)),
+            bits(tuple((SymBind::parse, SymType::parse))),
+            le_u8,
+            map(le_u16, SectionIndex),
+            Addr::parse,
+            le_u64,
+        ))(i)?;
+        let res = Self {
+            name,
+            bind,
+            r#type,
+            shndx,
+            value,
+            size,
+        };
+        Ok((i, res))        
+    }
+}
+
+
+#[derive(Debug)]
+pub struct SectionHeader {
+    pub name: Addr,
+    pub r#type: u32,
+    pub flags: u64,
+    pub addr: Addr,
+    pub off: Addr,
+    pub size: Addr,
+    pub link: u32,
+    pub info: u32,
+    pub addralign: Addr,
+    pub entsize: Addr,
+}
+
+impl SectionHeader {
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        use nom::{
+            combinator::map,
+            number::complete::{le_u32, le_u64},
+            sequence::tuple,
+        };
+        let (i, (name, r#type, flags, addr, off, size, link, info, addralign, entsize)) =
+            tuple((
+                map(le_u32, |x| Addr(x as u64)),
+                le_u32,
+                le_u64,
+                Addr::parse,
+                Addr::parse,
+                Addr::parse,
+                le_u32,
+                le_u32,
+                Addr::parse,
+                Addr::parse,
+            ))(i)?;
+        let res = Self {
+            name,
+            r#type,
+            flags,
+            addr,
+            off,
+            size,
+            link,
+            info,
+            addralign,
+            entsize,
+        };
+        Ok((i, res))
     }
 }
 
@@ -361,6 +533,7 @@ pub struct File {
     pub machine: Machine,
     pub entry_point: Addr,
     pub program_headers: Vec<ProgramHeader>,
+    pub section_headers: Vec<SectionHeader>,
 }
 
 impl File {
@@ -420,11 +593,19 @@ impl File {
             program_headers.push(ph);
         }
 
+        let sh_slices = (&full_input[sh_offset.into()..]).chunks(sh_entsize);
+        let mut section_headers = Vec::new();
+        for sh_slice in sh_slices.take(sh_count) {
+            let (_, sh) = SectionHeader::parse(sh_slice)?;
+            section_headers.push(sh);
+        }
+
         let res = Self {
             r#type,
             machine,
             entry_point,
             program_headers,
+            section_headers,
         };
 
         Ok((i, res))
@@ -453,9 +634,7 @@ impl File {
             },
             _ => unreachable!(),
         }
-        
     }
-
 
     pub fn parse_or_print_error(i: parse::Input) -> Option<Self> {
         match Self::parse(i) {
@@ -485,14 +664,31 @@ impl File {
         self.program_headers.iter().find(|ph| ph.r#type == r#type)
     }
 
-    pub fn dynamic_entry(&self, tag: DynamicTag) -> Option<Addr> {
+    pub fn dynamic_table(&self) -> Option<&[DynamicEntry]> {
         match self.segment_of_type(SegmentType::Dynamic) {
             Some(ProgramHeader {
                 contents: SegmentContents::Dynamic(entries),
                 ..
-            }) => entries.iter().find(|e| e.tag == tag).map(|e| e.addr),
+            }) => Some(entries),
             _ => None
         }
+    }
+
+    pub fn dynamic_entry_strings(&self, tag: DynamicTag) -> impl Iterator<Item = String> + '_ {
+        self.dynamic_entries(tag)
+            .filter_map(move |addr| self.get_string(addr).ok())
+    }
+    
+    pub fn dynamic_entries(&self, tag: DynamicTag) -> impl Iterator<Item = Addr> + '_ {
+        self.dynamic_table()
+            .unwrap_or_default()
+            .iter()
+            .filter(move |e| e.tag == tag)
+            .map(|e| e.addr)
+    }
+
+    pub fn dynamic_entry(&self, tag: DynamicTag) -> Option<Addr> {
+        self.dynamic_entries(tag).next()
     }
 
     pub fn slice_at(&self, mem_addr: Addr) -> Option<&[u8]> {
@@ -513,6 +709,35 @@ impl File {
         // slices seperated by '\0' and take the first item.
         let string_slice = slice.split(|&c| c == 0).next().ok_or(E::StringNotFound)?;
         Ok(String::from_utf8_lossy(string_slice).into())
+    }
+
+    pub fn section_starting_at(&self, addr: Addr) -> Option<&SectionHeader> {
+        self.section_headers.iter().find(|sh| sh.addr == addr)
+    }
+
+    pub fn read_syms(&self) -> Result<Vec<Sym>, ReadSymsError> {
+        use DynamicTag as DT;
+        use ReadSymsError as E;
+
+        let addr = self.dynamic_entry(DT::SymTab).ok_or(E::SymTabNotFound)?;
+
+        let section = self
+            .section_starting_at(addr)
+            .ok_or(E::SymTabSectionNotFound)?;
+
+        let i = self.slice_at(addr).ok_or(E::SymTabSegmentNotFound)?;
+        let n = (section.size.0 / section.entsize.0) as usize;
+        use nom::multi::many_m_n;
+
+        match many_m_n(n, n, Sym::parse)(i) {
+            Ok((_,  syms)) => Ok(syms),
+            Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
+                let e = &err.errors[0];
+                let (_input, error_kind) = e;
+                Err(E::ParsingError(error_kind.clone()))
+            }
+            _ => unreachable!(),
+        }
     }
 }
 

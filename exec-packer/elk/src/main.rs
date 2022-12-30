@@ -56,13 +56,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Executing {:?}...", input_path);
     use std::process::Command;
 
-    println!("Disassembling {:?}...", input_path);
+    // println!("Disassembling {:?}...", input_path);
     let code_ph = file
         .program_headers
         .iter()
         .find(|ph| ph.mem_range().contains(&file.entry_point))
         .expect("Segement with entry point not found");
-    ndisasm(&code_ph.data[..], file.entry_point)?;
+    // ndisasm(&code_ph.data[..], file.entry_point)?;
 
 
     
@@ -77,6 +77,39 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+
+    let syms = file.read_syms().unwrap();
+    println!("Symbol table @ {:?} contains {} entries",
+             file.dynamic_entry(delf::DynamicTag::SymTab).unwrap(),
+             syms.len()
+    );
+
+    println!(
+        "  {:6}{:12}{:10}{:16}{:16}{:12}{:12}",
+        "Num", "Value", "Size", "Type", "Bind", "Ndx", "Name"
+    );
+    for (num, s) in syms.iter().enumerate() {
+        println!(
+            "  {:6}{:12}{:10}{:16}{:16}{:12}{:12}",
+            format!("{}", num),
+            format!("{:?}", s.value),
+            format!("{:?}", s.size),
+            format!("{:?}", s.r#type),
+            format!("{:?}", s.bind),
+            format!("{:?}", s.shndx),
+            format!("{}", file.get_string(s.name).unwrap_or_default()),
+        );
+    }
+
+
+    let msg = syms
+        .iter()
+        .find(|sym| file.get_string(sym.name).unwrap_or_default() == "msg")
+        .expect("should find msg in symbol table");
+    let msg_slice = file.slice_at(msg.value).expect("should find msg in memory");
+    let msg_slice = &msg_slice[..msg.size as usize];
+    println!("msg contents: {:?}", String::from_utf8_lossy(msg_slice));
+
 
     println!("Rela entries:");
     let rela_entries = file.read_rela_entries()?;
@@ -107,6 +140,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     
+    if let Some(entries) = file.dynamic_table() {
+        for e in entries {
+            println!("{:?}", e);
+        }
+    }
+
+    for sh in &file.section_headers {
+        println!("{:?}", sh);
+    }
+
+
+
     let rela_entries = file.read_rela_entries()?;
     let base = 0x400000_usize;
 
