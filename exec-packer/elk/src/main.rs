@@ -123,6 +123,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             std::ptr::copy_nonoverlapping(ph.data.as_ptr(), addr.add(padding), len);
         }
 
+        let mut num_relocs = 0;
         println!("Applying relocations (if any)...");
         for reloc in &rela_entries {
             if mem_range.contains(&reloc.offset) {
@@ -139,16 +140,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                         reloc.r#type, offset_into_segment
                     );
 
-                    let reloc_addr: *mut u64 =
-                        trans(real_segment_start.add(offset_into_segment.into()));
                     match reloc.r#type {
-                        delf::RelType::Relative => {
-                            let reloc_value = reloc.addend + delf::Addr(base as u64);
-                            println!("Replacing with value {:?}", reloc_value);
-                            *reloc_addr = reloc_value.0;
-                        }
-                        r#type => {
-                            panic!("unsupported  relocation type {:?}", r#type); 
+                        delf::RelType::Known(t) => {
+                            num_relocs += 1;
+                            match t {
+                                delf::KnownRelType::Relative => {
+                                    let reloc_addr: *mut u64 = trans(real_segment_start.add(offset_into_segment.into()));
+                                    let reloc_value = reloc.addend + delf::Addr(base as u64);
+                                    *reloc_addr = reloc_value.0;
+                                },
+                                t => {
+                                    panic!("Unsupported relocation type {:?}", t);
+                                }
+                            }
+                        },
+                        delf::RelType::Unknown(_) => {
                         }
                     }
                 }
