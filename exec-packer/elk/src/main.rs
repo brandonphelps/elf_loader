@@ -64,6 +64,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("Segement with entry point not found");
     ndisasm(&code_ph.data[..], file.entry_point)?;
 
+
+    
     println!("Dynamic entries:");
     if let Some(ds) = file.program_headers
         .iter()
@@ -85,6 +87,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    println!("Found {} rela entries", rela_entries.len());
+    for entry in rela_entries.iter() {
+        println!("{:?}", entry);
+    }
+
+    if let Some(dynseg) = file.segment_of_type(delf::SegmentType::Dynamic) {
+        if let delf::SegmentContents::Dynamic(ref dyntab) = dynseg.contents  {
+            println!("Dynamic table entries:");
+            for e in dyntab  {
+                println!("{:?}", e);
+            }
+        }
+    }
     
     let rela_entries = file.read_rela_entries()?;
     let base = 0x400000_usize;

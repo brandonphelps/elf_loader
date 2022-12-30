@@ -173,7 +173,7 @@ pub enum DynamicTag {
     Init = 12,
     Fini = 13,
     SoName = 14,
-    RPath = 15,
+    RPath = 0xf,
     Symbolic = 16,
     Rel = 17,
     RelSz = 18,
@@ -187,8 +187,9 @@ pub enum DynamicTag {
     FiniArray = 26,
     InitArraySz = 27,
     FiniArraySz = 28,
-    RPath = 29,
+    RunPath = 29,
     Flags = 30,
+    Encoding = 32,
     LoOs = 0x60000000,
     GnuHash = 0x6ffffef5,
     VerSym = 0x6ffffff0,
@@ -280,20 +281,24 @@ impl ProgramHeader {
     fn parse<'a>(full_input: parse::Input<'a>, i: parse::Input<'a>) -> parse::Result<'a, Self> {
         use nom::sequence::tuple;
 
+        println!("Program header parse");
+        println!("{:?}", HexDump(i));
+
         let (i, (r#type, flags)) = tuple((SegmentType::parse, SegmentFlag::parse))(i)?;
+        println!("Type: {:?}", r#type);
+
 
         let ap = Addr::parse;
         let (i, (offset, vaddr, paddr, filesz, memsz, align)) = tuple((ap, ap, ap, ap, ap, ap))(i)?;
 
         use nom::{combinator::{map, verify}, multi::many_till};
-  // this used to be directly in the `Self` struct literal, but
+        // this used to be directly in the `Self` struct literal, but
         // we're going to use it in the next block to parse dynamic entries from it.
         let slice = &full_input[offset.into()..][..filesz.into()];
         let (_, contents) = match r#type {
             SegmentType::Dynamic => {
                 // *if* this is a Dynamic segment, we parse its contents. we haven't
                 // implemented `DynamicEntry::parse` yet, but it's coming!
-                println!("Slice: {:?}", slice);
                 map(
                     many_till(DynamicEntry::parse,
                               verify(DynamicEntry::parse, |e| e.tag == DynamicTag::Null),
@@ -491,13 +496,13 @@ impl File {
         }
     }
 
-    pub fn slice_at(&fself, mem_addr: Addr) -> Option<&[u8]> {
+    pub fn slice_at(&self, mem_addr: Addr) -> Option<&[u8]> {
         self.segment_at(mem_addr)
             .map(|seg| &seg.data[(mem_addr - seg.mem_range().start).into()..])
     }
 
     pub fn get_string(&self, offset: Addr) -> Result<String, GetStringError> {
-        
+        todo!()
     }
 }
 
