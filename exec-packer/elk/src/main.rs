@@ -97,6 +97,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("Dynamic table entries:");
             for e in dyntab  {
                 println!("{:?}", e);
+                match e.tag {
+                    delf::DynamicTag::Needed | delf::DynamicTag::RPath => {
+                        println!(" => {:?}", file.get_string(e.addr)?);
+                    }
+                    _ => {}
+                }
             }
         }
     }

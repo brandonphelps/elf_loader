@@ -437,10 +437,9 @@ impl File {
         let addr = self.dynamic_entry(DT::Rela).ok_or(E::RelaNotFound)?;
         let len = self.dynamic_entry(DT::RelaSz).ok_or(E::RelaSzNotFound)?;
         let ent = self.dynamic_entry(DT::RelaEnt).ok_or(E::RelaEntNotFound)?;
-        let seg = self.segment_at(addr).ok_or(E::RelaSzNotFound)?;
 
-
-        let i = &seg.data[(addr - seg.mem_range().start).into()..][..len.into()];
+        let i = self.slice_at(addr).ok_or(E::RelaSegmentNotFound)?;
+        let i = &i[..len.into()];
 
         let n = (len.0 / ent.0) as usize;
 
@@ -502,7 +501,18 @@ impl File {
     }
 
     pub fn get_string(&self, offset: Addr) -> Result<String, GetStringError> {
-        todo!()
+        use DynamicTag as DT;
+        use GetStringError as E;
+
+        let addr = self.dynamic_entry(DT::StrTab).ok_or(E::StrTabNotFound)?;
+        let slice = self
+            .slice_at(addr + offset)
+            .ok_or(E::StrTabSegmentNotFound)?;
+
+        // Our strings are null-terminated, so we lazily split the slice into
+        // slices seperated by '\0' and take the first item.
+        let string_slice = slice.split(|&c| c == 0).next().ok_or(E::StringNotFound)?;
+        Ok(String::from_utf8_lossy(string_slice).into())
     }
 }
 
