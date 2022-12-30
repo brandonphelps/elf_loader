@@ -1,5 +1,21 @@
 
 
+clean_targets := 
+
+define ASM_BUILD
+elk/samples/$1.o: elk/samples/$1.asm
+	nasm -g -felf64 $$< -o $$@
+
+clean_targets += elk/samples/$1.o
+endef
+
+define ASM_LINK
+$1: $2
+	ld --dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie $$^ -o $$@
+clean_targets += $1
+all: $1
+endef
+
 all: hello nodata entry_point hello-pie
 
 nodata: elk/samples/nodata.o
@@ -8,17 +24,18 @@ nodata: elk/samples/nodata.o
 hello: elk/samples/hello.o
 	ld elk/samples/hello.o -o $@
 
+$(eval $(call ASM_BUILD,hello-ld))
+$(eval $(call ASM_BUILD,hello))
+$(eval $(call ASM_BUILD,hello-pie))
+$(eval $(call ASM_BUILD,msg))
+$(eval $(call ASM_LINK,hello-ld,elk/samples/hello-ld.o elk/samples/msg.o))
 
-# linux
-elk/samples/hello.o: elk/samples/hello.asm
-	nasm -g -felf64 $< -o $@
+
+hello-dl: elk/samples/msg.o elk/samples/hello-ld.o
+	ld --dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie $< -o $@	
 
 hello-pie: elk/samples/hello-pie.o
-	ld --dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie elk/samples/hello-pie.o -o $@
-
-# linux
-elk/samples/hello-pie.o: elk/samples/hello-pie.asm
-	nasm -g -felf64 $< -o $@
+	ld --dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie $< -o $@
 
 elk/samples/nodata.o: elk/samples/nodata.asm
 	nasm -g -felf64 $< -o $@
@@ -27,7 +44,8 @@ entry_point: elk/samples/entry_point.c
 	gcc -g $< -o $@
 
 
-
+clean:
+	rm -rf $(clean_targets)
 
 # mac
 #       nasm -fmaco64 hello.asm -> hello.o

@@ -76,8 +76,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    println!("Rela entries:");
+    let rela_entries = file.read_rela_entries()?;
+    for e in &rela_entries {
+        println!("{:#?}", e);
+        if let Some(seg) = file.segment_at(e.offset) {
+            println!("... for {:#?}", seg);
+        }
+    }
 
-
+    
+    let rela_entries = file.read_rela_entries()?;
     let base = 0x400000_usize;
 
     println!("Mapping {:?} in memory...", input_path);
@@ -110,10 +119,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         let map = MemoryMap::new(len, &[MapOption::MapWritable, MapOption::MapAddr(addr)])?;
 
         println!("Copying segment data...");
-        {
-            let dst = unsafe { std::slice::from_raw_parts_mut(addr.add(padding), ph.data.len()) };
-            dst.copy_from_slice(&ph.data[..]);
+        unsafe {
+            std::ptr::copy_nonoverlapping(ph.data.as_ptr(), addr.add(padding), len);
         }
+
+        println!("Applying relocations (if any)...");
+        for reloc in &rela_entries {
+            if mem_range.contains(&reloc.offset) {
+                unsafe  {
+                    use std::mem::transmute as trans;
+
+                    let real_segment_start = addr.add(padding);
+                    let specified_reloc_offset = reloc.offset;
+                    let specified_segment_start = mem_range.start;
+                    let offset_into_segment = specified_reloc_offset - specified_segment_start;
+
+                    println!(
+                        "Applying {:?} relocation @ {:?} form segment start",
+                        reloc.r#type, offset_into_segment
+                    );
+
+                    let reloc_addr: *mut u64 =
+                        trans(real_segment_start.add(offset_into_segment.into()));
+                    match reloc.r#type {
+                        delf::RelType::Relative => {
+                            let reloc_value = reloc.addend + delf::Addr(base as u64);
+                            println!("Replacing with value {:?}", reloc_value);
+                            *reloc_addr = reloc_value.0;
+                        }
+                        r#type => {
+                            panic!("unsupported  relocation type {:?}", r#type); 
+                        }
+                    }
+                }
+            }
+        }
+
 
         println!("Adjusting permissions...");
 

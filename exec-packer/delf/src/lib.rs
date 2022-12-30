@@ -5,6 +5,19 @@ use derive_more::*;
 use enumflags2::*;
 use num_enum::TryFromPrimitive;
 
+#[derive(thiserror::Error, Debug)]
+pub enum ReadRelError {
+    #[error("Rela dynamic entry not found")]
+    RelaNotFound,
+    #[error("RelaSz dynamic entry not found")]
+    RelaSzNotFound,
+    #[error("Rela segment not found")]
+    RelaSegmentNotFound,
+    #[error("Parsing error")]
+    ParsingError(nom::error::VerboseErrorKind),
+}
+
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Add, Sub)]
 pub struct Addr(pub u64);
 
@@ -177,6 +190,39 @@ impl DynamicEntry {
     }
 }
 
+#[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum RelType {
+    GlobDat = 6,
+    JumpSlot = 7,
+    Relative = 8,
+}
+
+impl_parse_from_enum!(RelType, le_u32);
+
+#[derive(Debug)]
+pub struct Rela {
+    pub offset: Addr,
+    pub r#type: RelType,
+    pub sym: u32,
+    pub addend: Addr,
+}
+
+impl Rela {
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        use nom::{combinator::map, number::complete::le_u32, sequence::tuple};
+        map(
+            tuple((Addr::parse, RelType::parse, le_u32, Addr::parse)),
+            |(offset, r#type, sym, addend)| Rela {
+                offset,
+                r#type,
+                sym,
+                addend
+            }
+        )(i)
+    }
+}
+
 
 use std::ops::Range;
 
@@ -337,6 +383,30 @@ impl File {
         Ok((i, res))
     }
 
+    pub fn read_rela_entries(&self) -> Result<Vec<Rela>, ReadRelError> {
+        use DynamicTag as DT;
+        use ReadRelError as E;
+
+        let addr = self.dynamic_entry(DT::Rela).ok_or(E::RelaNotFound)?;
+        let len = self.dynamic_entry(DT::RelaSz).ok_or(E::RelaSzNotFound)?;
+        let seg = self.segment_at(addr).ok_or(E::RelaSzNotFound)?;
+
+        let i = &seg.data[(addr - seg.mem_range().start).into()..][..len.into()];
+
+        use nom::multi::many0;
+        match many0(Rela::parse)(i) {
+            Ok((_, rela_entries)) => Ok(rela_entries),
+            Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
+                let e = &err.errors[0];
+                let (_input, error_kind) = e;
+                Err(E::ParsingError(error_kind.clone()))
+            },
+            _ => unreachable!(),
+        }
+        
+    }
+
+
     pub fn parse_or_print_error(i: parse::Input) -> Option<Self> {
         match Self::parse(i) {
             Ok((_, file)) => Some(file),
@@ -351,6 +421,27 @@ impl File {
                 None
             }
             Err(_) => panic!("unexpected nom error"),
+        }
+    }
+
+    pub fn segment_at(&self, addr: Addr) -> Option<&ProgramHeader> {
+        self.program_headers
+            .iter()
+            .filter(|ph| ph.r#type == SegmentType::Load)
+            .find(|ph| ph.mem_range().contains(&addr))
+    }
+
+    pub fn segment_of_type(&self, r#type: SegmentType) -> Option<&ProgramHeader> {
+        self.program_headers.iter().find(|ph| ph.r#type == r#type)
+    }
+
+    pub fn dynamic_entry(&self, tag: DynamicTag) -> Option<Addr> {
+        match self.segment_of_type(SegmentType::Dynamic) {
+            Some(ProgramHeader {
+                contents: SegmentContents::Dynamic(entries),
+                ..
+            }) => entries.iter().find(|e| e.tag == tag).map(|e| e.addr),
+            _ => None
         }
     }
 }

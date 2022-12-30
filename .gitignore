@@ -5,3 +5,9 @@
 target/**
 /exec-packer/target/
 /exec-packer/elk/samples/entry_point
+*.o
+/exec-packer/entry_point
+/exec-packer/hello
+/exec-packer/hello-ld
+/exec-packer/hello-pie
+/exec-packer/nodata
