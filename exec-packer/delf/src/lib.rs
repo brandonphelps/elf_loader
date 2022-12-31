@@ -416,7 +416,6 @@ pub struct Rela {
 
 impl Rela {
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
-        println!("Rela parse");
         use nom::{combinator::map, number::complete::le_u32, sequence::tuple};
         map(
             tuple((Addr::parse, RelType::parse, le_u32, Addr::parse)),
@@ -577,8 +576,6 @@ impl File {
             map(le_u16, |x| x as usize),
             map(le_u16, |x| x as usize),
         ))(i)?;
-
-        println!("{:?}", sh_entsize + 1 as usize);
 
         let ph_slices = (&full_input[ph_offset.into()..]).chunks(ph_entsize);
         let mut program_headers = Vec::new();
@@ -751,6 +748,7 @@ impl<'a> fmt::Debug for HexDump<'a> {
 mod tests {
     use super::Machine;
     use std::convert::TryFrom;
+    use super::{DynamicEntry, DynamicTag};
 
     use num_enum::TryFromPrimitiveError;
 
@@ -781,4 +779,23 @@ mod tests {
 
         assert!(BitFlags::<SegmentFlag>::from_bits(1992).is_err());
     }
+
+    #[test]
+    fn test_dynamic_entry_load() {
+        let data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, ];
+        let d = DynamicEntry::parse(&data).unwrap().1;
+        assert_eq!(d.tag, DynamicTag::Null);
+
+        let data = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, ];
+        let d = DynamicEntry::parse(&data).unwrap().1;
+        assert_eq!(d.tag, DynamicTag::Needed);
+
+        let data = [0xF, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, ];
+        let d = DynamicEntry::parse(&data).unwrap().1;
+        assert_eq!(d.tag, DynamicTag::RPath);
+    }
 }
+
+
+
+

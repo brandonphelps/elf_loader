@@ -89,7 +89,7 @@ impl Process {
         let path = path.as_ref().canonicalize().map_err(|e| LoadError::IO(path.as_ref().to_path_buf(), e))?;
         let input = fs::read(&path).map_err(|e| LoadError::IO(path.clone(), e))?;
 
-        println!("Loading {:?}", path);
+        println!("Loading {:#?}", path);
         let file = delf::File::parse_or_print_error(&input[..])
             .ok_or_else(|| LoadError::ParseError(path.clone()))?;
 
@@ -98,6 +98,13 @@ impl Process {
             .ok_or_else(|| LoadError::InvalidPath(path.clone()))?
             .to_str()
             .ok_or_else(|| LoadError::InvalidPath(path.clone()))?;
+
+        self.search_path.extend(
+            file.dynamic_entry_strings(delf::DynamicTag::RPath) // for some reason this is backwards? faster than lime uses RPATH
+                .map(|path| path.replace("$ORIGIN", &origin))
+                .inspect(|path| println!("Found RPATH entry {:?}", path))
+                .map(PathBuf::from),
+        );
 
         self.search_path.extend(
             file.dynamic_entry_strings(delf::DynamicTag::RunPath) // for some reason this is backwards? faster than lime uses RPATH

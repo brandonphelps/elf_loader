@@ -49,8 +49,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_path = env::args().nth(1).expect("useage: elk FILE");
 
     let mut proc = process::Process::new();
-    let exec = proc.load_object(input_path)?;
-    println!("{:?}", proc);
+    let exec = proc.load_object_and_dependencies(input_path)?;
+    println!("{:#?}", proc);
     return Ok(());
 
     let input = fs::read(&input_path)?;
