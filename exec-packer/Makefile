@@ -35,7 +35,7 @@ libmsg.so: elk/samples/msg.o
 	ld -shared elk/samples/msg.o -o libmsg.so
 
 hello-dl: libmsg.so elk/samples/hello-ld.o
-	ld -rpath . -pie --dynamic-linker /lib64/ld-linux-x86-64.so.2 elk/samples/hello-ld.o libmsg.so -o hello-dl
+	ld -rpath "." -rpath-link "$$ORIGIN" -pie --dynamic-linker /lib64/ld-linux-x86-64.so.2 elk/samples/hello-ld.o libmsg.so -o hello-dl
 
 hello-pie: elk/samples/hello-pie.o
 	ld --dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie $< -o $@

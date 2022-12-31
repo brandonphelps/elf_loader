@@ -2,6 +2,8 @@ use mmap::{MapOption, MemoryMap};
 use region::{protect, Protection};
 use std::{env, error::Error, fs};
 
+mod process;
+
 fn align_lo(x: usize) -> usize {
     x & !0xFFF
 }
@@ -45,6 +47,12 @@ fn pause(reason: &str) -> Result<(), Box<dyn Error>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let input_path = env::args().nth(1).expect("useage: elk FILE");
+
+    let mut proc = process::Process::new();
+    let exec = proc.load_object(input_path)?;
+    println!("{:?}", proc);
+    return Ok(());
+
     let input = fs::read(&input_path)?;
     let file = match delf::File::parse_or_print_error(&input[..]) {
         Some(f) => f,
@@ -64,10 +72,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("Segement with entry point not found");
     // ndisasm(&code_ph.data[..], file.entry_point)?;
 
-
-    
     println!("Dynamic entries:");
-    if let Some(ds) = file.program_headers
+    if let Some(ds) = file
+        .program_headers
         .iter()
         .find(|ph| ph.r#type == delf::SegmentType::Dynamic)
     {
@@ -79,9 +86,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let syms = file.read_syms().unwrap();
-    println!("Symbol table @ {:?} contains {} entries",
-             file.dynamic_entry(delf::DynamicTag::SymTab).unwrap(),
-             syms.len()
+    println!(
+        "Symbol table @ {:?} contains {} entries",
+        file.dynamic_entry(delf::DynamicTag::SymTab).unwrap(),
+        syms.len()
     );
 
     println!(
@@ -101,7 +109,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-
     let msg = syms
         .iter()
         .find(|sym| file.get_string(sym.name).unwrap_or_default() == "msg")
@@ -109,7 +116,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let msg_slice = file.slice_at(msg.value).expect("should find msg in memory");
     let msg_slice = &msg_slice[..msg.size as usize];
     println!("msg contents: {:?}", String::from_utf8_lossy(msg_slice));
-
 
     println!("Rela entries:");
     let rela_entries = file.read_rela_entries()?;
@@ -126,9 +132,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(dynseg) = file.segment_of_type(delf::SegmentType::Dynamic) {
-        if let delf::SegmentContents::Dynamic(ref dyntab) = dynseg.contents  {
+        if let delf::SegmentContents::Dynamic(ref dyntab) = dynseg.contents {
             println!("Dynamic table entries:");
-            for e in dyntab  {
+            for e in dyntab {
                 println!("{:?}", e);
                 match e.tag {
                     delf::DynamicTag::Needed | delf::DynamicTag::RPath => {
@@ -139,7 +145,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    
+
     if let Some(entries) = file.dynamic_table() {
         for e in entries {
             println!("{:?}", e);
@@ -149,8 +155,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     for sh in &file.section_headers {
         println!("{:?}", sh);
     }
-
-
 
     let rela_entries = file.read_rela_entries()?;
     let base = 0x400000_usize;
@@ -176,11 +180,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         let aligned_start: usize = align_lo(start);
         let padding = start - aligned_start;
         let len = len + padding;
-        
+
         // `as` is the "cast" operator, and `_` is a  placeholder to force  rustc
         // to infer the type based on other hints
         let addr: *mut u8 = aligned_start as _;
-        println!("start: {:?} Addr: {:p}, Padding: {:08x}", start, addr, padding);
+        println!(
+            "start: {:?} Addr: {:p}, Padding: {:08x}",
+            start, addr, padding
+        );
 
         let map = MemoryMap::new(len, &[MapOption::MapWritable, MapOption::MapAddr(addr)])?;
 
@@ -193,7 +200,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Applying relocations (if any)...");
         for reloc in &rela_entries {
             if mem_range.contains(&reloc.offset) {
-                unsafe  {
+                unsafe {
                     use std::mem::transmute as trans;
 
                     let real_segment_start = addr.add(padding);
@@ -211,22 +218,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                             num_relocs += 1;
                             match t {
                                 delf::KnownRelType::Relative => {
-                                    let reloc_addr: *mut u64 = trans(real_segment_start.add(offset_into_segment.into()));
+                                    let reloc_addr: *mut u64 =
+                                        trans(real_segment_start.add(offset_into_segment.into()));
                                     let reloc_value = reloc.addend + delf::Addr(base as u64);
                                     *reloc_addr = reloc_value.0;
-                                },
+                                }
                                 t => {
                                     panic!("Unsupported relocation type {:?}", t);
                                 }
                             }
-                        },
-                        delf::RelType::Unknown(_) => {
                         }
+                        delf::RelType::Unknown(_) => {}
                     }
                 }
             }
         }
-
 
         println!("Adjusting permissions...");
 
@@ -244,7 +250,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             protect(addr, len, protection)?;
         }
         mappings.push(map);
-        
     }
 
     println!("Executing {:?} in memory...", input_path);

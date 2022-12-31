@@ -37,7 +37,6 @@ macro_rules! impl_parse_for_enumflags {
     };
 }
 
-
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
     Nom(nom::error::ErrorKind),
@@ -51,7 +50,7 @@ pub struct Error<I> {
 impl<I, E> nom::error::FromExternalError<I, E> for Error<I> {
     fn from_external_error(input: I, kind: nom::error::ErrorKind, e: E) -> Self {
         let errors = vec![(input, ErrorKind::Nom(kind))];
-        Self { errors } 
+        Self { errors }
     }
 
     // fn append(input: I, kind:  nom::error::ErrorKind, mut other: Self) -> Self {
@@ -65,7 +64,6 @@ impl<I, E> nom::error::FromExternalError<I, E> for Error<I> {
     // }
 }
 
-
 pub type Input<'a> = &'a [u8];
 pub type Result<'a, O> = nom::IResult<Input<'a>, O, nom::error::VerboseError<Input<'a>>>;
 
@@ -77,7 +75,7 @@ use std::ops::RangeFrom;
 
 impl<I> ErrorConvert<Error<I>> for Error<(I, usize)>
 where
-    I: Slice<RangeFrom<usize>>
+    I: Slice<RangeFrom<usize>>,
 {
     fn convert(self) -> Error<I> {
         let errors = self
@@ -85,6 +83,6 @@ where
             .into_iter()
             .map(|((rest, offset), err)| (rest.slice(offset / 8..), err))
             .collect();
-        Error { errors } 
+        Error { errors }
     }
 }

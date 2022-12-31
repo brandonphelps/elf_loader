@@ -35,7 +35,6 @@ pub enum GetStringError {
     StringNotFound,
 }
 
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Add, Sub)]
 pub struct Addr(pub u64);
 
@@ -142,8 +141,6 @@ pub enum ReadSymsError {
     ParsingError(nom::error::VerboseErrorKind),
 }
 
-
-
 pub struct ProgramHeader {
     pub r#type: SegmentType,
     pub flags: BitFlags<SegmentFlag>,
@@ -168,7 +165,6 @@ pub struct DynamicEntry {
     pub tag: DynamicTag,
     pub addr: Addr,
 }
-
 
 #[derive(Debug, TryFromPrimitive, PartialEq, Eq, Clone, Copy)]
 #[repr(u64)]
@@ -213,7 +209,7 @@ pub enum DynamicTag {
     VerDefNum = 0x6ffffffd,
     VerNeed = 0x6ffffffe,
     VerNeedNum = 0x6fffffff,
-    RelACount = 0x6ffffff9,    
+    RelACount = 0x6ffffff9,
     LoProc = 0x70000000,
     HiProc = 0x7fffffff,
 }
@@ -224,7 +220,7 @@ impl DynamicEntry {
     fn parse(i: parse::Input) -> parse::Result<Self> {
         use nom::sequence::tuple;
         let (i, (tag, addr)) = tuple((DynamicTag::parse, Addr::parse))(i)?;
-        Ok((i,  Self { tag, addr }))
+        Ok((i, Self { tag, addr }))
     }
 }
 
@@ -252,7 +248,7 @@ impl RelType {
 
         alt((
             map(KnownRelType::parse, Self::Known),
-            map(le_u32, Self::Unknown)
+            map(le_u32, Self::Unknown),
         ))(i)
     }
 }
@@ -287,7 +283,6 @@ impl SymType {
         map(take(4_usize), |i: u8| Self::try_from(i).ok())(i)
     }
 }
-
 
 #[derive(Clone, Copy)]
 pub struct SectionIndex(pub u16);
@@ -334,14 +329,12 @@ pub struct Sym {
 
 impl Sym {
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
-
         use nom::{
             bits::bits,
             combinator::map,
             number::complete::{le_u16, le_u32, le_u64, le_u8},
             sequence::tuple,
         };
-        
 
         let (i, (name, (bind, r#type), _reserved, shndx, value, size)) = tuple((
             map(le_u32, |x| Addr(x as u64)),
@@ -359,10 +352,9 @@ impl Sym {
             value,
             size,
         };
-        Ok((i, res))        
+        Ok((i, res))
     }
 }
-
 
 #[derive(Debug)]
 pub struct SectionHeader {
@@ -432,12 +424,11 @@ impl Rela {
                 offset,
                 r#type,
                 sym,
-                addend
-            }
+                addend,
+            },
         )(i)
     }
 }
-
 
 use std::ops::Range;
 
@@ -459,11 +450,13 @@ impl ProgramHeader {
         let (i, (r#type, flags)) = tuple((SegmentType::parse, SegmentFlag::parse))(i)?;
         println!("Type: {:?}", r#type);
 
-
         let ap = Addr::parse;
         let (i, (offset, vaddr, paddr, filesz, memsz, align)) = tuple((ap, ap, ap, ap, ap, ap))(i)?;
 
-        use nom::{combinator::{map, verify}, multi::many_till};
+        use nom::{
+            combinator::{map, verify},
+            multi::many_till,
+        };
         // this used to be directly in the `Self` struct literal, but
         // we're going to use it in the next block to parse dynamic entries from it.
         let slice = &full_input[offset.into()..][..filesz.into()];
@@ -472,8 +465,9 @@ impl ProgramHeader {
                 // *if* this is a Dynamic segment, we parse its contents. we haven't
                 // implemented `DynamicEntry::parse` yet, but it's coming!
                 map(
-                    many_till(DynamicEntry::parse,
-                              verify(DynamicEntry::parse, |e| e.tag == DynamicTag::Null),
+                    many_till(
+                        DynamicEntry::parse,
+                        verify(DynamicEntry::parse, |e| e.tag == DynamicTag::Null),
                     ),
                     |(entries, _last)| SegmentContents::Dynamic(entries),
                 )(slice)?
@@ -631,7 +625,7 @@ impl File {
                 let e = &err.errors[0];
                 let (_input, error_kind) = e;
                 Err(E::ParsingError(error_kind.clone()))
-            },
+            }
             _ => unreachable!(),
         }
     }
@@ -670,7 +664,7 @@ impl File {
                 contents: SegmentContents::Dynamic(entries),
                 ..
             }) => Some(entries),
-            _ => None
+            _ => None,
         }
     }
 
@@ -678,7 +672,7 @@ impl File {
         self.dynamic_entries(tag)
             .filter_map(move |addr| self.get_string(addr).ok())
     }
-    
+
     pub fn dynamic_entries(&self, tag: DynamicTag) -> impl Iterator<Item = Addr> + '_ {
         self.dynamic_table()
             .unwrap_or_default()
@@ -730,7 +724,7 @@ impl File {
         use nom::multi::many_m_n;
 
         match many_m_n(n, n, Sym::parse)(i) {
-            Ok((_,  syms)) => Ok(syms),
+            Ok((_, syms)) => Ok(syms),
             Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
                 let e = &err.errors[0];
                 let (_input, error_kind) = e;
