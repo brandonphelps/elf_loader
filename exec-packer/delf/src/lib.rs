@@ -45,7 +45,7 @@ impl Addr {
         std::mem::transmute(self.0 as usize)
     }
 
-    pub unsafe fn as_slice<T>(&mut self, len: usize) -> &[T] {
+    pub unsafe fn as_slice<T>(&self, len: usize) -> &[T] {
         std::slice::from_raw_parts(self.as_ptr(), len)
     }
 
@@ -334,7 +334,7 @@ impl fmt::Debug for SectionIndex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sym {
     pub name: Addr,
     pub bind: SymBind,

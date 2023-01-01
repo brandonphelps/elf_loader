@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use delf::DynamicTag::Needed;
 
+use crate::name::Name;
 use mmap::MemoryMap;
 
 #[derive(thiserror::Error, Debug)]
@@ -25,6 +26,12 @@ pub enum LoadError {
 
     #[error("Could not read symbols from  ELF object: {0}")]
     ReadSymsError(#[from] delf::ReadSymsError),
+}
+
+#[derive(Debug, Clone)]
+struct NamedSym {
+    sym: delf::Sym,
+    name: Name,
 }
 
 #[derive(Debug)]

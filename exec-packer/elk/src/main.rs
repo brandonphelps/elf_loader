@@ -3,7 +3,7 @@ use region::{protect, Protection};
 use std::{env, error::Error, fs};
 
 mod process;
-
+mod name;
 
 fn align_lo(x: usize) -> usize {
     x & !0xFFF
