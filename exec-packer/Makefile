@@ -16,7 +16,7 @@ clean_targets += $1
 all: $1
 endef
 
-all: hello nodata entry_point hello-pie hello-dl
+all: hello nodata entry_point hello-pie hello-dl bss bss2
 
 nodata: elk/samples/nodata.o
 	ld elk/samples/nodata.o -o $@
@@ -30,6 +30,14 @@ $(eval $(call ASM_BUILD,hello-pie))
 $(eval $(call ASM_BUILD,msg))
 $(eval $(call ASM_LINK,hello-ld,elk/samples/hello-ld.o elk/samples/msg.o))
 
+
+bss: elk/samples/bss.asm
+	nasm -g -f elf64 elk/samples/bss.asm
+	ld -pie --dynamic-linker /lib64/ld-linux-x86-64.so.2 elk/samples/bss.o -o bss
+
+bss2: elk/samples/bss2.asm
+	nasm -g -f elf64 elk/samples/bss2.asm
+	ld -pie --dynamic-linker /lib64/ld-linux-x86-64.so.2 elk/samples/bss2.o -o bss2
 
 libmsg.so: elk/samples/msg.o
 	ld -shared elk/samples/msg.o -o libmsg.so

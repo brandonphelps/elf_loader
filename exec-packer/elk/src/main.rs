@@ -4,6 +4,7 @@ use std::{env, error::Error, fs};
 
 mod process;
 
+
 fn align_lo(x: usize) -> usize {
     x & !0xFFF
 }
@@ -49,7 +50,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_path = env::args().nth(1).expect("useage: elk FILE");
 
     let mut proc = process::Process::new();
-    let exec = proc.load_object_and_dependencies(input_path)?;
+    let exec_index = proc.load_object_and_dependencies(input_path)?;
+    proc.apply_relocations()?;
+    proc.adjust_protections()?;
+    
+    let exec_obj = &proc.objects[exec_index];
+    let entry_point = exec_obj.file.entry_point + exec_obj.base;
+    unsafe { jmp(entry_point.as_ptr()) };
+    return Ok(());
+
     println!("{:#?}", proc);
     return Ok(());
 
@@ -214,21 +223,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                     );
 
                     match reloc.r#type {
-                        delf::RelType::Known(t) => {
-                            num_relocs += 1;
-                            match t {
-                                delf::KnownRelType::Relative => {
-                                    let reloc_addr: *mut u64 =
-                                        trans(real_segment_start.add(offset_into_segment.into()));
-                                    let reloc_value = reloc.addend + delf::Addr(base as u64);
-                                    *reloc_addr = reloc_value.0;
-                                }
-                                t => {
-                                    panic!("Unsupported relocation type {:?}", t);
-                                }
-                            }
+                        delf::RelType::Relative => {
+                            let reloc_addr: *mut u64 =
+                                trans(real_segment_start.add(offset_into_segment.into()));
+                            let reloc_value = reloc.addend + delf::Addr(base as u64);
+                            *reloc_addr = reloc_value.0;
+                        },
+                        t => {
+                            panic!("Unsupported relocation type {:?}", t);
                         }
-                        delf::RelType::Unknown(_) => {}
                     }
                 }
             }

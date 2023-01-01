@@ -7,22 +7,14 @@ use num_enum::TryFromPrimitive;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReadRelError {
-    #[error("Rela dynamic entry not found")]
-    RelaNotFound,
-    #[error("RelaSz dynamic entry not found")]
-    RelaSzNotFound,
-
-    #[error("RelaEnt dynamic entry not found")]
-    RelaEntNotFound,
-
-    #[error("RelaSeg dynamic entry not found")]
-    RelaSegNotFound,
+    #[error("{0}")]
+    DynamicEntryNotFound(#[from] GetDynamicEntryError),
 
     #[error("Rela segment not found")]
     RelaSegmentNotFound,
 
-    #[error("Parsing error")]
-    ParsingError(nom::error::VerboseErrorKind),
+    #[error("Parsing error: {0}")]
+    ParsingError(String),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -33,6 +25,12 @@ pub enum GetStringError {
     StrTabSegmentNotFound,
     #[error("String not found")]
     StringNotFound,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetDynamicEntryError {
+    #[error("Failed to get dynamic tag")]
+    NotFound(DynamicTag),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Add, Sub)]
@@ -46,11 +44,27 @@ impl Addr {
     pub unsafe fn as_mut_ptr<T>(&self) -> *mut T {
         std::mem::transmute(self.0 as usize)
     }
+
+    pub unsafe fn as_slice<T>(&mut self, len: usize) -> &[T] {
+        std::slice::from_raw_parts(self.as_ptr(), len)
+    }
+
+    pub unsafe fn as_mut_slice<T>(&self, len: usize) -> &mut [T] {
+        std::slice::from_raw_parts_mut(self.as_mut_ptr(), len)
+    }
+
+    pub unsafe fn write(&self, src: &[u8]) {
+        std::ptr::copy_nonoverlapping(src.as_ptr(), self.as_mut_ptr(), src.len());
+    }
+
+    pub unsafe fn set<T>(&self, src: T) {
+        *self.as_mut_ptr() = src;
+    }
 }
 
 impl fmt::Debug for Addr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:08x}", self.0)
+        write!(f, "{:016x}", self.0)
     }
 }
 
@@ -102,8 +116,8 @@ pub enum Machine {
     X86_64 = 0x3e,
 }
 
-impl_parse_from_enum!(Type, le_u16);
-impl_parse_from_enum!(Machine, le_u16);
+impl_parse_for_enum!(Type, le_u16);
+impl_parse_for_enum!(Machine, le_u16);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u32)]
@@ -126,7 +140,7 @@ pub enum SegmentType {
     GnuProperty = 0x6474_E553,
 }
 
-impl_parse_from_enum!(SegmentType, le_u32);
+impl_parse_for_enum!(SegmentType, le_u32);
 
 #[bitflags]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,7 +162,7 @@ pub enum ReadSymsError {
     #[error("SymTab segment not found")]
     SymTabSegmentNotFound,
     #[error("Parsing error")]
-    ParsingError(nom::error::VerboseErrorKind),
+    ParsingError(parse::ErrorKind),
 }
 
 pub struct ProgramHeader {
@@ -224,7 +238,7 @@ pub enum DynamicTag {
     HiProc = 0x7fffffff,
 }
 
-impl_parse_from_enum!(DynamicTag, le_u64);
+impl_parse_for_enum!(DynamicTag, le_u64);
 
 impl DynamicEntry {
     fn parse(i: parse::Input) -> parse::Result<Self> {
@@ -236,7 +250,7 @@ impl DynamicEntry {
 
 #[derive(Debug, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
-pub enum KnownRelType {
+pub enum RelType {
     _64 = 1,
     Copy = 5,
     GlobDat = 6,
@@ -244,24 +258,24 @@ pub enum KnownRelType {
     Relative = 8,
 }
 
-impl_parse_from_enum!(KnownRelType, le_u32);
+impl_parse_for_enum!(RelType, le_u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelType {
-    Known(KnownRelType),
-    Unknown(u32),
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub enum RelType {
+//     Known(KnownRelType),
+//     Unknown(u32),
+// }
 
-impl RelType {
-    pub fn parse(i: parse::Input) -> parse::Result<Self> {
-        use nom::{branch::alt, combinator::map, number::complete::le_u32};
+// impl RelType {
+//     pub fn parse(i: parse::Input) -> parse::Result<Self> {
+//         use nom::{branch::alt, combinator::map, number::complete::le_u32};
 
-        alt((
-            map(KnownRelType::parse, Self::Known),
-            map(le_u32, Self::Unknown),
-        ))(i)
-    }
-}
+//         alt((
+//             map(KnownRelType::parse, Self::Known),
+//             map(le_u32, Self::Unknown),
+//         ))(i)
+//     }
+// }
 
 #[derive(Debug, TryFromPrimitive, Clone, Copy)]
 #[repr(u8)]
@@ -271,12 +285,7 @@ pub enum SymBind {
     Weak = 2,
 }
 
-impl SymBind {
-    pub fn parse(i: parse::BitInput) -> parse::BitResult<Option<Self>> {
-        use nom::{bits::complete::take, combinator::map};
-        map(take(4_usize), |i: u8| Self::try_from(i).ok())(i)
-    }
-}
+impl_parse_for_bit_enum!(SymBind, 4_usize);
 
 #[derive(Debug, TryFromPrimitive, Clone, Copy)]
 #[repr(u8)]
@@ -287,12 +296,7 @@ pub enum SymType {
     Section = 3,
 }
 
-impl SymType {
-    pub fn parse(i: parse::BitInput) -> parse::BitResult<Option<Self>> {
-        use nom::{bits::complete::take, combinator::map};
-        map(take(4_usize), |i: u8| Self::try_from(i).ok())(i)
-    }
-}
+impl_parse_for_bit_enum!(SymType, 4_usize);
 
 #[derive(Clone, Copy)]
 pub struct SectionIndex(pub u16);
@@ -330,8 +334,8 @@ impl fmt::Debug for SectionIndex {
 #[derive(Debug)]
 pub struct Sym {
     pub name: Addr,
-    pub bind: Option<SymBind>,
-    pub r#type: Option<SymType>,
+    pub bind: SymBind,
+    pub r#type: SymType,
     pub shndx: SectionIndex,
     pub value: Addr,
     pub size: u64,
@@ -425,6 +429,8 @@ pub struct Rela {
 }
 
 impl Rela {
+    const SIZE: usize = 24;
+
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
         use nom::{combinator::map, number::complete::le_u32, sequence::tuple};
         map(
@@ -612,28 +618,35 @@ impl File {
         Ok((i, res))
     }
 
+    pub fn get_dynamic_entry(&self, tag: DynamicTag) -> Result<Addr, GetDynamicEntryError> {
+        self.dynamic_entry(tag).ok_or(GetDynamicEntryError::NotFound(tag))
+    }
+    
     pub fn read_rela_entries(&self) -> Result<Vec<Rela>, ReadRelError> {
         use DynamicTag as DT;
         use ReadRelError as E;
 
-        let addr = self.dynamic_entry(DT::Rela).ok_or(E::RelaNotFound)?;
-        let len = self.dynamic_entry(DT::RelaSz).ok_or(E::RelaSzNotFound)?;
-        let ent = self.dynamic_entry(DT::RelaEnt).ok_or(E::RelaEntNotFound)?;
+        match self.dynamic_entry(DT::Rela) {
+            None => Ok(vec![]),
+            Some(addr) => {
+                let len = self.get_dynamic_entry(DT::RelaSz)?;
 
-        let i = self.slice_at(addr).ok_or(E::RelaSegmentNotFound)?;
-        let i = &i[..len.into()];
+                let i = self.slice_at(addr).ok_or(E::RelaSegmentNotFound)?;
+                let i = &i[..len.into()];
 
-        let n = (len.0 / ent.0) as usize;
+                let n: usize = len.0 as usize / Rela::SIZE;
 
-        use nom::multi::many_m_n;
-        match many_m_n(n, n, Rela::parse)(i) {
-            Ok((_, rela_entries)) => Ok(rela_entries),
-            Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
-                let e = &err.errors[0];
-                let (_input, error_kind) = e;
-                Err(E::ParsingError(error_kind.clone()))
+                use nom::multi::many_m_n;
+                match many_m_n(n, n, Rela::parse)(i) {
+                    Ok((_, rela_entries)) => Ok(rela_entries),
+                    Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
+                        let e = &err.errors[0];
+                        let (_input, error_kind) = e;
+                        Err(E::ParsingError(format!("{:?}", err)))
+                    }
+                    _ => unreachable!(),
+                }
             }
-            _ => unreachable!(),
         }
     }
 
@@ -757,8 +770,8 @@ impl<'a> fmt::Debug for HexDump<'a> {
 #[cfg(test)]
 mod tests {
     use super::Machine;
-    use std::convert::TryFrom;
     use super::{DynamicEntry, DynamicTag};
+    use std::convert::TryFrom;
 
     use num_enum::TryFromPrimitiveError;
 
@@ -792,20 +805,16 @@ mod tests {
 
     #[test]
     fn test_dynamic_entry_load() {
-        let data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, ];
+        let data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7];
         let d = DynamicEntry::parse(&data).unwrap().1;
         assert_eq!(d.tag, DynamicTag::Null);
 
-        let data = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, ];
+        let data = [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7];
         let d = DynamicEntry::parse(&data).unwrap().1;
         assert_eq!(d.tag, DynamicTag::Needed);
 
-        let data = [0xF, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, ];
+        let data = [0xF, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7];
         let d = DynamicEntry::parse(&data).unwrap().1;
         assert_eq!(d.tag, DynamicTag::RPath);
     }
 }
-
-
-
-
