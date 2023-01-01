@@ -46,7 +46,14 @@ fn pause(reason: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+
+    if let Err(e) = do_main() {
+        eprintln!("Fatal error: {}", e);
+    }
+}
+
+fn do_main() -> Result<(), Box<dyn Error>> {
     let input_path = env::args().nth(1).expect("useage: elk FILE");
 
     let mut proc = process::Process::new();

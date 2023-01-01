@@ -96,16 +96,6 @@ impl<I, E> nom::error::FromExternalError<I, E> for Error<I> {
         let errors = vec![(input, ErrorKind::Nom(kind))];
         Self { errors }
     }
-
-    // fn append(input: I, kind:  nom::error::ErrorKind, mut other: Self) -> Self {
-    //     other.errors.push((input, ErrorKind::Nom(kind)));
-    //     other
-    // }
-
-    // fn add_context(input: I, ctx: &'static str, mut other: Self) -> Self {
-    //     other.errors.push((input, ErrorKind::Context(ctx)));
-    //     other
-    // }
 }
 
 pub type Input<'a> = &'a [u8];
@@ -134,7 +124,7 @@ where
 use nom::error::ParseError;
 
 impl<I> ParseError<I> for Error<I> {
-    fn from_error_kind(i: I, e: nom::error::ErrorKind) -> Self  {
+    fn from_error_kind(i: I, e: nom::error::ErrorKind) -> Self {
         let errors = vec![(i, ErrorKind::Nom(e))];
         Self { errors } 
     }
@@ -144,17 +134,6 @@ impl<I> ParseError<I> for Error<I> {
         k
     }
 }
-
-// impl ParseError<(&[u8], usize)> for Error<(&[u8], usize)> {
-//     fn from_error_kind(i: (&[u8], usize), e: nom::error::ErrorKind) -> Self  {
-//         todo!()
-//     }
-
-//     fn append(i: (&[u8], usize), f: nom::error::ErrorKind, k: Self) -> Self {
-//         todo!()
-//     }
-// }
-
 
 use nom::error::ContextError;
 

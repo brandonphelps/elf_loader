@@ -155,14 +155,17 @@ impl_parse_for_enumflags!(SegmentFlag, le_u32);
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReadSymsError {
-    #[error("SymTab dynamic entry not found")]
-    SymTabNotFound,
+    #[error("{0:?}")]
+    DynamicEntryNotFound(#[from] GetDynamicEntryError),
+
     #[error("SymTab section not found")]
     SymTabSectionNotFound,
+
     #[error("SymTab segment not found")]
     SymTabSegmentNotFound,
-    #[error("Parsing error")]
-    ParsingError(parse::ErrorKind),
+
+    #[error("Parsing error: {0}")]
+    ParsingError(String),
 }
 
 pub struct ProgramHeader {
@@ -733,7 +736,7 @@ impl File {
         use DynamicTag as DT;
         use ReadSymsError as E;
 
-        let addr = self.dynamic_entry(DT::SymTab).ok_or(E::SymTabNotFound)?;
+        let addr = self.get_dynamic_entry(DT::SymTab)?;
 
         let section = self
             .section_starting_at(addr)
@@ -748,7 +751,7 @@ impl File {
             Err(nom::Err::Failure(err)) | Err(nom::Err::Error(err)) => {
                 let e = &err.errors[0];
                 let (_input, error_kind) = e;
-                Err(E::ParsingError(error_kind.clone()))
+                Err(E::ParsingError(format!("{:?}", err)))
             }
             _ => unreachable!(),
         }
