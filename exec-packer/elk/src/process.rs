@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use delf::DynamicTag::Needed;
 
+use multimap::MultiMap;
+
 use crate::name::Name;
 use mmap::MemoryMap;
 
@@ -339,6 +341,17 @@ impl Process {
         }
 
         let syms = file.read_syms()?;
+        let strtab = file
+            .get_dynamic_entry(delf::DynamicTag::StrTab)
+            .unwrap_or_else(|_| panic!("String table not found in {:?}", path));
+
+        let syms: Vec<_> = syms
+            .into_iter()
+            .map(|sym| unsafe {
+                let name = Name::from_addr(base + strtab + sym.name);
+                NamedSym { sym, name }
+            })
+            .collect();
 
         let index = self.objects.len();
         let res = Object {
@@ -348,6 +361,7 @@ impl Process {
             mem_range,
             file,
             syms,
+            sym_map,
         };
 
         self.objects.push(res);
@@ -382,6 +396,10 @@ pub struct Object {
 
     #[debug(skip)]
     pub syms: Vec<delf::Sym>,
+
+    #[debug(skip)]
+    sym_map: MultiMap<Name, NamedSym>,
+
 }
 
 #[derive(thiserror::Error, Debug)]
